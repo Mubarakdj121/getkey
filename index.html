@@ -463,23 +463,22 @@ header {
         </div>
 
         <div class="info-card" id="infoCard">
-            <div class="info-title" id="infoTitle">
+            <div class="info-title">
                 <span class="info-bullet"></span>
-                Verification Required
+                Generating Your Key
             </div>
-            <div class="info-body" id="infoBody">
-                Tap <strong>VERIFY &amp; CONTINUE</strong> below. Complete the verification page and you will be returned here automatically.
+            <div class="info-body">
+                First complete <strong>verification</strong>. After you return, wait <strong>3 seconds</strong> while we generate your license key.
+                Do not close this page.
             </div>
         </div>
 
-        <div id="verifyBox" style="margin-top:18px;">
-            <button class="btn btn-primary" id="verifyBtn">
-                <span class="btn-icon icon-lock"></span>
-                Verify &amp; Continue
-            </button>
-        </div>
+        <button class="btn btn-primary" id="verifyBtn" style="margin-top:22px;">
+            <span class="btn-icon icon-lock"></span>
+            Verify & Continue
+        </button>
 
-        <div class="timer-wrap hidden" id="timerWrap">
+        <div class="timer-wrap hidden">
             <div class="timer-ring" id="timerRing">
                 <svg viewBox="0 0 120 120">
                     <circle class="track"    cx="60" cy="60" r="55"></circle>
@@ -490,7 +489,7 @@ header {
             <div class="timer-label">Seconds</div>
         </div>
 
-        <button class="btn btn-primary" id="unlockBtn" disabled style="margin-top:22px;">
+        <button class="btn btn-primary hidden" id="unlockBtn" disabled style="margin-top:22px;">
             <span class="btn-icon icon-lock"></span>
             Unlock Key
         </button>
@@ -516,11 +515,6 @@ header {
 
         <div id="status"></div>
 
-        <div style="margin-top:14px;text-align:center;color:var(--text-dim);font-size:.78rem;line-height:1.45;">
-            GitHub-safe mode: no private API token is exposed. Verification uses the VPlink return parameter,
-            and the generated key is stored only in this browser. This is a simple client-side verification gate.
-        </div>
-
         <div class="footer">
             <span class="footer-line"></span>
             <span class="footer-dot"></span>
@@ -534,58 +528,188 @@ header {
 
 <script>
 /* =========================================================
- *  SAFE GITHUB PAGES VERSION
- *  No GitLab token, private API, or write access is used.
- *  Keys are generated locally in this browser only.
+ *  ⚙️  GITLAB CONFIG
  * ========================================================= */
-const WAIT_SECONDS    = 3;
-const KEY_VALIDITY_MS = 24 * 60 * 60 * 1000;
-const FREE_USERNAME   = "Free User";
-const FREE_TYPE       = "free";
-const STORAGE_KEY     = "mubarak_jr_local_key";
-const VERIFIED_KEY    = "mubarak_jr_verified";
-const VERIFY_URL      = "https://vplink.in/BB7I";
+const GITLAB_CONFIG = {
+    TOKEN:        "glpat-ZTkfLsthOGhWbIFRAZsouGM6MQpvOjEKdTpvZ2g1ag8.01.170qvmiuo",
+    PROJECT_PATH: "mubarakhossen731/getkey",
+    BRANCH:       "main",
+    FILE:         "config.json"
+};
+
+const WAIT_SECONDS     = 3;
+const KEY_VALIDITY_MS  = 24 * 60 * 60 * 1000;
+const FREE_USERNAME    = "Free User";
+const FREE_TYPE        = "free";
+
 let _toastTimer = null;
 
-function generateKey() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const bytes = new Uint8Array(8);
-    crypto.getRandomValues(bytes);
-    let out = '';
-    for (let i = 0; i < bytes.length; i++) {
-        out += chars[bytes[i] % chars.length];
-    }
-    return `JR-${out.slice(0,4)}-${out.slice(4,8)}`;
+/* =========================================================
+ *  VPLINK VERIFICATION
+ * ========================================================= */
+const VPLINK_URL = "https://vplink.in/BB7I";
+const VERIFIED_PARAM = "verified";
+const VERIFIED_VALUE = "1";
+
+function isVerifiedReturn() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get(VERIFIED_PARAM) === VERIFIED_VALUE ||
+           sessionStorage.getItem("mubarak_jr_vplink_verified") === "1";
 }
 
-function createKey() {
+function startVerifiedFlow() {
+    sessionStorage.setItem("mubarak_jr_vplink_verified", "1");
+
+    const verifyBtn = document.getElementById("verifyBtn");
+    const timerWrap = document.querySelector(".timer-wrap");
+    const unlock = document.getElementById("unlockBtn");
+
+    if (verifyBtn) verifyBtn.classList.add("hidden");
+    if (timerWrap) timerWrap.classList.remove("hidden");
+    if (unlock) unlock.classList.remove("hidden");
+
+    // Clean the URL after verification while keeping the session verified.
+    try {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+    } catch (e) {}
+
+    setStatus("Verification successful — generating access...", "success");
+}
+
+function openVerification() {
+    setStatus("Opening verification...", "");
+    window.location.href = VPLINK_URL;
+}
+
+/* =========================================================
+ *  URLS
+ * ========================================================= */
+function gitlabFileUrl() {
+    const pid  = encodeURIComponent(GITLAB_CONFIG.PROJECT_PATH);
+    const file = encodeURIComponent(GITLAB_CONFIG.FILE);
+    return `https://gitlab.com/api/v4/projects/${pid}/repository/files/${file}/raw?ref=${GITLAB_CONFIG.BRANCH}&private_token=${GITLAB_CONFIG.TOKEN}`;
+}
+function gitlabUploadUrl() {
+    const pid  = encodeURIComponent(GITLAB_CONFIG.PROJECT_PATH);
+    const file = encodeURIComponent(GITLAB_CONFIG.FILE);
+    return `https://gitlab.com/api/v4/projects/${pid}/repository/files/${file}?private_token=${GITLAB_CONFIG.TOKEN}`;
+}
+
+/* =========================================================
+ *  PULL / PUSH
+ * ========================================================= */
+async function pullConfig() {
+    const res = await fetch(gitlabFileUrl() + '&_t=' + Date.now(), { cache: 'no-store' });
+    if (res.status === 404) {
+        return { enabled: true, get_key_url: "", telegram_url: "",
+                 banned_devices: [], keys: {} };
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+}
+
+async function pushConfig(payload) {
+    const body = {
+        branch: GITLAB_CONFIG.BRANCH,
+        content: JSON.stringify(payload, null, 4),
+        commit_message: 'Add free key via BLACK FOX GetKey page'
+    };
+    const url = gitlabUploadUrl();
+    let res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (!res.ok && (res.status === 404 || res.status === 400)) {
+        res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    }
+    if (!res.ok) {
+        const t = await res.text();
+        throw new Error(res.status + ' — ' + t.substring(0, 150));
+    }
+    return true;
+}
+
+/* =========================================================
+ *  KEY GENERATOR
+ * ========================================================= */
+function generateKey() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const seg = n => Array.from({ length: n },
+        () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    return `FOX-${seg(4)}-${seg(4)}`;
+}
+
+/* =========================================================
+ *  CLEANUP STALE UNUSED FREE KEYS
+ *  (removes unbound free keys older than their validity)
+ * ========================================================= */
+function cleanupStaleKeys(config) {
+    if (!config.keys) return;
+    const now = Date.now();
+    const toRemove = [];
+
+    Object.keys(config.keys).forEach(k => {
+        const e = config.keys[k] || {};
+        const type = e.type || "free";
+        const bound = e.device_id || "";
+        const created = e.created_at || 0;
+
+        // Free key + unbound + expired window → dead weight
+        if (type === "free" && !bound && (now - created) > KEY_VALIDITY_MS) {
+            toRemove.push(k);
+        }
+        // Any key absolutely expired AND unbound → cleanup
+        if (!bound && (e.expires_at || 0) < now) {
+            if (!toRemove.includes(k)) toRemove.push(k);
+        }
+    });
+
+    toRemove.forEach(k => delete config.keys[k]);
+    return toRemove.length;
+}
+
+/* =========================================================
+ *  CREATE KEY
+ * ========================================================= */
+async function createKey() {
     showLoader(true);
-    setStatus('Generating secure local key...', '');
+    setStatus('Fetching config...', '');
 
     try {
-        const now = Date.now();
-        const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        const config = await pullConfig();
+        config.keys = config.keys || {};
+        config.banned_devices = config.banned_devices || [];
 
-        // Reuse an unexpired key in this browser so refreshing the page
-        // does not create unlimited local keys.
-        if (existing && existing.key && existing.expires_at > now) {
-            showLoader(false);
-            displayKey(existing.key, existing.expires_at);
-            return;
+        // Cleanup before adding new
+        const cleaned = cleanupStaleKeys(config);
+        if (cleaned > 0) {
+            console.log('Cleaned ' + cleaned + ' stale keys');
         }
 
-        const key = generateKey();
-        const record = {
-            key,
-            username: FREE_USERNAME,
-            type: FREE_TYPE,
+        let key = '';
+        do { key = generateKey(); } while (config.keys[key]);
+
+        const now = Date.now();
+        config.keys[key] = {
+            device_id:  '',              // bound on first app login
+            username:   FREE_USERNAME,   // fixed for free keys
+            type:       FREE_TYPE,       // marker for cleanup logic
             created_at: now,
             expires_at: now + KEY_VALIDITY_MS
         };
 
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
+        setStatus('Saving to server...', '');
+        await pushConfig(config);
+
         showLoader(false);
-        displayKey(key, record.expires_at);
+        displayKey(key);
+
     } catch (err) {
         console.error(err);
         showLoader(false);
@@ -594,7 +718,7 @@ function createKey() {
     }
 }
 
-function displayKey(key, expiresAt) {
+function displayKey(key) {
     document.getElementById('keyDisplay').textContent = key;
     document.getElementById('result').classList.remove('hidden');
     document.getElementById('infoCard').classList.add('hidden');
@@ -603,13 +727,6 @@ function displayKey(key, expiresAt) {
     setStatus('Key generated — auto-copied', 'success');
     toast('Key copied to clipboard');
     copyToClipboard(key);
-
-    // Keep the existing UI's validity text, but make the local nature clear.
-    const infoItems = document.querySelectorAll('.key-info-item');
-    if (infoItems.length >= 2) {
-        infoItems[0].innerHTML = '<span class="dot"></span>24 Hours';
-        infoItems[1].innerHTML = '<span class="dot"></span>This Browser';
-    }
 }
 
 /* =========================================================
@@ -619,19 +736,49 @@ const CIRC = 2 * Math.PI * 55;
 document.getElementById('progressCircle').style.strokeDasharray = CIRC;
 
 let seconds = WAIT_SECONDS;
-let iv = null;
-const timerEl    = document.getElementById('timer');
-const ringEl     = document.getElementById('timerRing');
-const progressEl = document.getElementById('progressCircle');
-const unlockBtn  = document.getElementById('unlockBtn');
-const verifyBtn  = document.getElementById('verifyBtn');
-const verifyBox  = document.getElementById('verifyBox');
-const timerWrap  = document.getElementById('timerWrap');
-const statusEl   = document.getElementById('status');
-const infoTitle  = document.getElementById('infoTitle');
-const infoBody   = document.getElementById('infoBody');
+const timerEl   = document.getElementById('timer');
+const ringEl    = document.getElementById('timerRing');
+const progressEl= document.getElementById('progressCircle');
+const unlockBtn = document.getElementById('unlockBtn');
+const statusEl  = document.getElementById('status');
+const verifyBtn = document.getElementById('verifyBtn');
+const timerWrap = document.querySelector('.timer-wrap');
 
 progressEl.style.strokeDashoffset = 0;
+
+function startTimer() {
+    seconds = WAIT_SECONDS;
+    timerEl.textContent = seconds;
+    progressEl.style.strokeDashoffset = 0;
+    ringEl.classList.remove('done');
+
+    const iv = setInterval(() => {
+        seconds--;
+        timerEl.textContent = seconds;
+        const offset = CIRC * (1 - seconds / WAIT_SECONDS);
+        progressEl.style.strokeDashoffset = offset;
+
+        if (seconds <= 0) {
+            clearInterval(iv);
+            timerEl.textContent = '✓';
+            ringEl.classList.add('done');
+            unlockBtn.disabled = false;
+            setStatus('Ready — tap Unlock', '');
+        }
+    }, 1000);
+}
+
+verifyBtn.addEventListener('click', openVerification);
+
+if (isVerifiedReturn()) {
+    startVerifiedFlow();
+    startTimer();
+} else {
+    timerWrap.classList.add('hidden');
+    unlockBtn.classList.add('hidden');
+    unlockBtn.disabled = true;
+    setStatus('Complete verification before generating a key', '');
+}
 
 function setStatus(msg, cls) {
     statusEl.textContent = msg;
@@ -642,90 +789,14 @@ function unlockBtnReset() {
     unlockBtn.innerHTML = '<span class="btn-icon icon-retry"></span>Retry';
 }
 
-function hasValidSavedKey() {
-    try {
-        const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-        return !!(existing && existing.key && existing.expires_at > Date.now());
-    } catch (e) {
-        return false;
-    }
-}
-
-function startKeyTimer() {
-    verifyBox.classList.add('hidden');
-    timerWrap.classList.remove('hidden');
-    unlockBtn.classList.remove('hidden');
-    infoTitle.innerHTML = '<span class="info-bullet"></span>Generating Your Key';
-    infoBody.innerHTML = 'Please wait <strong>3 seconds</strong> while we prepare your license key. Do not close this page.';
-    setStatus('Verification successful — preparing key...', 'success');
-
-    seconds = WAIT_SECONDS;
-    timerEl.textContent = seconds;
-    ringEl.classList.remove('done');
-    progressEl.style.strokeDashoffset = 0;
-    unlockBtn.disabled = true;
-    unlockBtn.innerHTML = '<span class="btn-icon icon-lock"></span>Unlock Key';
-
-    if (iv) clearInterval(iv);
-    iv = setInterval(() => {
-        seconds--;
-        timerEl.textContent = seconds;
-        const offset = CIRC * (1 - seconds / WAIT_SECONDS);
-        progressEl.style.strokeDashoffset = offset;
-        if (seconds <= 0) {
-            clearInterval(iv);
-            iv = null;
-            timerEl.textContent = '✓';
-            ringEl.classList.add('done');
-            unlockBtn.disabled = false;
-            setStatus('Ready — tap Unlock', '');
-        }
-    }, 1000);
-}
-
-function initVerification() {
-    // If a valid key already exists, refresh simply shows the same key.
-    if (hasValidSavedKey()) {
-        showLoader(false);
-        createKey();
-        return;
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const verifiedFromReturn = params.get('verified') === '1';
-
-    if (verifiedFromReturn) {
-        localStorage.setItem(VERIFIED_KEY, '1');
-        // Remove the query from the address bar after accepting it.
-        try { history.replaceState({}, document.title, window.location.pathname); } catch (e) {}
-        startKeyTimer();
-        return;
-    }
-
-    // A previous successful verification in this browser can be reused.
-    if (localStorage.getItem(VERIFIED_KEY) === '1') {
-        startKeyTimer();
-        return;
-    }
-
-    showLoader(false);
-    timerWrap.classList.add('hidden');
-    unlockBtn.classList.add('hidden');
-    verifyBox.classList.remove('hidden');
-    setStatus('Verification required before generating a key.', '');
-}
-
 /* =========================================================
  *  EVENTS
  * ========================================================= */
-verifyBtn.addEventListener('click', () => {
-    verifyBtn.disabled = true;
-    verifyBtn.innerHTML = '<span class="btn-icon icon-spin icon-retry"></span>Opening Verification...';
-    localStorage.setItem('mubarak_jr_verification_started', String(Date.now()));
-    window.location.href = VERIFY_URL;
-});
-
 unlockBtn.addEventListener('click', () => {
+    if (!isVerifiedReturn()) {
+        setStatus('Verification required first', 'error');
+        return;
+    }
     unlockBtn.disabled = true;
     unlockBtn.innerHTML = '<span class="btn-icon icon-spin icon-retry"></span>Working...';
     createKey();
@@ -772,9 +843,6 @@ function toast(msg) {
     clearTimeout(_toastTimer);
     _toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
-
-// Start the appropriate state after the page is ready.
-initVerification();
 </script>
 </body>
 </html>
