@@ -433,10 +433,58 @@ header {
     backdrop-filter: blur(10px);
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#bypassScreen.hidden { display:none !important; }
 .hidden { display: none !important; }
 </style>
 </head>
 <body>
+
+
+<div id="bypassScreen" class="hidden" style="
+    position:fixed; inset:0; z-index:99999;
+    background:#050000;
+    display:flex; align-items:center; justify-content:center;
+    padding:28px;
+">
+  <div style="
+      width:100%; max-width:620px; text-align:center;
+      background:linear-gradient(180deg,#1a0707,#100304);
+      border:1px solid rgba(255,55,55,.28);
+      border-radius:28px;
+      padding:54px 28px 42px;
+      box-shadow:0 0 70px rgba(255,0,0,.16), inset 0 1px 0 rgba(255,255,255,.03);
+  ">
+    <div style="
+        width:86px;height:86px;margin:0 auto 28px;
+        border:7px solid #ff3038;border-radius:50%;
+        position:relative; box-shadow:0 0 22px rgba(255,0,0,.5);
+    ">
+      <span style="
+          position:absolute; width:58px;height:7px;
+          background:#ff3038; border-radius:8px;
+          left:8px; top:32px; transform:rotate(45deg);
+          box-shadow:0 0 10px rgba(255,0,0,.55);
+      "></span>
+    </div>
+    <div style="
+        font-family:Arial,sans-serif; font-weight:800;
+        font-size:2rem; color:#ff4248; margin-bottom:18px;
+    ">Bypass Detected!</div>
+    <div style="
+        font-family:Arial,sans-serif; font-size:1.05rem;
+        line-height:1.65; color:#a9a1a1; margin-bottom:30px;
+    ">
+      Direct access is prohibited. Please use the official
+      verification link to generate your key.
+    </div>
+    <button id="returnStepsBtn" style="
+        width:100%; padding:18px 20px; border:0; border-radius:18px;
+        background:#ff4147; color:white; font-size:1rem;
+        font-weight:800; cursor:pointer;
+        box-shadow:0 8px 28px rgba(255,0,0,.22);
+    ">RETURN TO STEPS</button>
+  </div>
+</div>
 
 <div id="loader">
     <div class="loader-ring"></div>
@@ -770,7 +818,30 @@ function startTimer() {
 
 verifyBtn.addEventListener('click', openVerification);
 
-if (isVerifiedReturn()) {
+function isPageReload() {
+    try {
+        const nav = performance.getEntriesByType('navigation')[0];
+        return nav && nav.type === 'reload';
+    } catch (e) {
+        return false;
+    }
+}
+
+function showBypassScreen() {
+    const screen = document.getElementById('bypassScreen');
+    if (screen) screen.classList.remove('hidden');
+}
+
+document.getElementById('returnStepsBtn').addEventListener('click', () => {
+    sessionStorage.removeItem("mubarak_jr_vplink_verified");
+    window.location.href = VPLINK_URL;
+});
+
+// After the user has entered the generator once, a browser refresh shows
+// the same style of bypass screen instead of generating another key.
+if (isPageReload() && sessionStorage.getItem("mubarak_jr_vplink_verified") === "1") {
+    showBypassScreen();
+} else if (isVerifiedReturn()) {
     startVerifiedFlow();
     startTimer();
 } else {
